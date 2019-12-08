@@ -1,0 +1,162 @@
+FUNCTION_BLOCK RTC
+  VAR_INPUT
+    IN : BOOL;
+    PDT : DT;
+  END_VAR
+  VAR_OUTPUT
+    Q : BOOL := FALSE;
+    CDT : DT;
+  END_VAR
+  VAR
+    PREV_IN : BOOL := FALSE;
+    OFFSET : TIME;
+    CURRENT_TIME : DT;
+  END_VAR
+
+  {__SET_VAR(data__->,CURRENT_TIME,,__CURRENT_TIME)}
+
+   IF IN
+   THEN
+     IF NOT PREV_IN
+     THEN
+         OFFSET := PDT - CURRENT_TIME;
+     END_IF;
+
+     (* PDT + time since PDT was loaded *)
+     CDT := CURRENT_TIME + OFFSET;
+   ELSE
+     CDT := CURRENT_TIME;
+   END_IF;
+
+   Q := IN;
+   PREV_IN := IN;
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK INTEGRAL
+  VAR_INPUT
+    RUN : BOOL;
+    R1 : BOOL;
+    XIN : REAL;
+    X0 : REAL;
+    CYCLE : TIME;
+  END_VAR
+  VAR_OUTPUT
+    Q : BOOL;
+    XOUT : REAL;
+  END_VAR
+
+  Q := NOT R1 ;
+  IF R1 THEN XOUT := X0;
+  ELSIF RUN THEN XOUT := XOUT + XIN * TIME_TO_REAL(CYCLE);
+  END_IF;
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK RAMP
+  VAR_INPUT
+    RUN : BOOL;
+    X0 : REAL;
+    X1 : REAL;
+    TR : TIME;
+    CYCLE : TIME;
+  END_VAR
+  VAR_OUTPUT
+    BUSY : BOOL;
+    XOUT : REAL := 0.0;
+  END_VAR
+  VAR
+    XI : REAL;
+    T : TIME := T#0s;
+  END_VAR
+
+  BUSY := RUN ;
+  IF RUN THEN
+    IF T >= TR THEN 
+      BUSY := 0;
+      XOUT := X1;
+    ELSE XOUT := XI + (X1-XI) * TIME_TO_REAL(T)
+                              / TIME_TO_REAL(TR);
+      T := T + CYCLE;
+    END_IF;
+  ELSE
+    XOUT := X0;
+    XI := X0;
+    T := T#0s;
+  END_IF;
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK HYSTERESIS
+  VAR_INPUT
+    XIN1 : REAL;
+    XIN2 : REAL;
+    EPS : REAL;
+  END_VAR
+  VAR_OUTPUT
+    Q : BOOL;
+  END_VAR
+
+  IF Q THEN
+    IF XIN1 < (XIN2 - EPS) THEN 
+      Q := 0;
+    END_IF;
+  ELSIF XIN1 > (XIN2 + EPS) THEN
+    Q := 1;
+  END_IF;
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK DERIVATIVE
+  VAR_INPUT
+    RUN : BOOL;
+    XIN : REAL;
+    CYCLE : TIME;
+  END_VAR
+  VAR_OUTPUT
+    XOUT : REAL;
+  END_VAR
+  VAR
+    X1 : REAL;
+    X2 : REAL;
+    X3 : REAL;
+  END_VAR
+
+  IF RUN THEN
+    XOUT := (3.0 * (XIN - X3) + X1 - X2)
+            / (10.0 * TIME_TO_REAL(CYCLE));
+    X3 := X2;
+    X2 := X1;
+    X1 := XIN;
+  ELSE 
+    XOUT := 0.0;
+    X1 := XIN;
+    X2 := XIN;
+    X3 := XIN;
+  END_IF;
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK PID
+  VAR_INPUT
+    AUTO : BOOL;
+    PV : REAL;
+    SP : REAL;
+    X0 : REAL;
+    KP : REAL;
+    TR : REAL;
+    TD : REAL;
+    CYCLE : TIME;
+  END_VAR
+  VAR_OUTPUT
+    XOUT : REAL;
+  END_VAR
+  VAR
+    ERROR : REAL;
+    ITERM : INTEGRAL;
+    DTERM : DERIVATIVE;
+  END_VAR
+
+  ERROR := PV - SP ;
+  (*** Adjust ITERM so that XOUT := X0 when AUTO = 0 ***)
+  ITERM(RUN := AUTO, R1 := NOT AUTO, XIN := ERROR,
+        X0 := TR * (X0 - ERROR), CYCLE := CYCLE);
+  DTERM(RUN := AUTO, XIN := ERROR, CYCLE := CYCLE);
+  XOUT := KP * (ERROR + ITERM.XOUT/TR + DTERM.XOUT*TD);
+END_FUNCTION_BLOCK
+
